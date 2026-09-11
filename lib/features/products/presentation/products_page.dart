@@ -1,7 +1,69 @@
 import 'package:flutter/material.dart';
 
-class ProductsPage extends StatelessWidget {
+import '../data/product_model.dart';
+import '../data/product_repository.dart';
+import 'product_form_page.dart';
+
+class ProductsPage extends StatefulWidget {
   const ProductsPage({super.key});
+
+  @override
+  State<ProductsPage> createState() => _ProductsPageState();
+}
+
+class _ProductsPageState extends State<ProductsPage> {
+  final ProductRepository _repository = ProductRepository();
+
+  List<Product> _products = const [];
+  bool _isLoading = true;
+  String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProducts();
+  }
+
+  Future<void> _loadProducts() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final products = await _repository.getAll();
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _products = products;
+        _isLoading = false;
+      });
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'تعذر تحميل المنتجات.';
+      });
+    }
+  }
+
+  Future<void> _openAddProduct() async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => const ProductFormPage(),
+      ),
+    );
+
+    if (saved == true) {
+      await _loadProducts();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -16,14 +78,14 @@ class ProductsPage extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16),
               child: FilledButton.icon(
-                onPressed: () {},
+                onPressed: _openAddProduct,
                 icon: const Icon(Icons.add),
                 label: const Text('إضافة منتج'),
               ),
             )
           else
             IconButton(
-              onPressed: () {},
+              onPressed: _openAddProduct,
               icon: const Icon(Icons.add),
               tooltip: 'إضافة منتج',
             ),
@@ -36,7 +98,7 @@ class ProductsPage extends StatelessWidget {
             _SearchBar(isDesktop: isDesktop),
             const SizedBox(height: 16),
             Expanded(
-              child: _ProductsList(isDesktop: isDesktop),
+              child: _buildProductsContent(isDesktop),
             ),
           ],
         ),
@@ -44,10 +106,46 @@ class ProductsPage extends StatelessWidget {
       floatingActionButton: isDesktop
           ? null
           : FloatingActionButton.extended(
-              onPressed: () {},
+              onPressed: _openAddProduct,
               icon: const Icon(Icons.add),
               label: const Text('إضافة منتج'),
             ),
+    );
+  }
+
+  Widget _buildProductsContent(bool isDesktop) {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (_errorMessage != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(_errorMessage!),
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _loadProducts,
+              icon: const Icon(Icons.refresh),
+              label: const Text('إعادة المحاولة'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (_products.isEmpty) {
+      return const Center(
+        child: Text('لا توجد منتجات حاليًا.'),
+      );
+    }
+
+    return _ProductsList(
+      products: _products,
+      isDesktop: isDesktop,
     );
   }
 }
@@ -75,16 +173,13 @@ class _SearchBar extends StatelessWidget {
 }
 
 class _ProductsList extends StatelessWidget {
+  final List<Product> products;
   final bool isDesktop;
 
-  const _ProductsList({required this.isDesktop});
-
-  static const products = [
-    ('مياه معدنية 500 مل', '628100000001', 'حبة', '3.00'),
-    ('عصير برتقال', '628100000002', 'علبة', '4.50'),
-    ('أرز 5 كجم', '628100000003', 'كيس', '28.00'),
-    ('شيبس', '628100000004', 'حبة', '2.00'),
-  ];
+  const _ProductsList({
+    required this.products,
+    required this.isDesktop,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -101,9 +196,9 @@ class _ProductsList extends StatelessWidget {
               leading: CircleAvatar(
                 child: Text('${index + 1}'),
               ),
-              title: Text(product.$1),
+              title: Text(product.name),
               subtitle: Text(
-                'باركود: ${product.$2}  •  الوحدة: ${product.$3}',
+                'الوحدة الأساسية: ${product.baseUnitId}',
               ),
               trailing: SizedBox(
                 width: 180,
@@ -111,7 +206,7 @@ class _ProductsList extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     Text(
-                      '${product.$4} ₪',
+                      '${product.defaultPrice.toStringAsFixed(2)} ₪',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(width: 12),
@@ -149,11 +244,11 @@ class _ProductsList extends StatelessWidget {
             leading: CircleAvatar(
               child: Text('${index + 1}'),
             ),
-            title: Text(product.$1),
+            title: Text(product.name),
             subtitle: Text(
-              '${product.$3} • ${product.$4} ₪\n${product.$2}',
+              '${product.baseUnitId} • '
+              '${product.defaultPrice.toStringAsFixed(2)} ₪',
             ),
-            isThreeLine: true,
             trailing: PopupMenuButton<String>(
               onSelected: (value) {},
               itemBuilder: (context) => const [
