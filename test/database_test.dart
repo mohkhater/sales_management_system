@@ -23,6 +23,8 @@ void main() {
   test('database creates tables and default units', () async {
     final db = await AppDatabase.instance.database;
 
+    expect(await db.getVersion(), 5);
+
     final tables = await db.rawQuery('''
       SELECT name
       FROM sqlite_master
@@ -48,6 +50,9 @@ void main() {
     final units = await db.query('units');
 
     expect(units.length, 13);
+
+    final productUnits = await db.query('product_units');
+    expect(productUnits, isEmpty);
 
     expect(
       units.any((unit) => unit['id'] == 'piece'),

@@ -2,10 +2,19 @@ import 'package:flutter/material.dart';
 
 import '../../units/data/unit_model.dart';
 import '../../units/data/unit_repository.dart';
+import '../data/product_model.dart';
 import '../data/product_repository.dart';
+import 'product_units_page.dart';
 
 class ProductFormPage extends StatefulWidget {
-  const ProductFormPage({super.key});
+  final Product? product;
+
+  const ProductFormPage({
+    super.key,
+    this.product,
+  });
+
+  bool get isEditing => product != null;
 
   @override
   State<ProductFormPage> createState() => _ProductFormPageState();
@@ -30,6 +39,13 @@ class _ProductFormPageState extends State<ProductFormPage> {
   @override
   void initState() {
     super.initState();
+
+    if (widget.product != null) {
+      _nameController.text = widget.product!.name;
+      _priceController.text =
+          widget.product!.defaultPrice.toStringAsFixed(2);
+    }
+
     _loadUnits();
   }
 
@@ -42,17 +58,48 @@ class _ProductFormPageState extends State<ProductFormPage> {
 
   Future<void> _loadUnits() async {
     try {
-      final units = await _unitRepository.getAll(
+      final activeUnits = await _unitRepository.getAll(
         activeOnly: true,
       );
+
+      final product = widget.product;
+
+      List<Unit> units = activeUnits;
+
+      if (product != null) {
+        final existingUnit = await _unitRepository.getById(
+          product.baseUnitId,
+        );
+
+        if (existingUnit != null &&
+            !units.any((unit) => unit.id == existingUnit.id)) {
+          units = [
+            existingUnit,
+            ...units,
+          ];
+        }
+      }
 
       if (!mounted) {
         return;
       }
 
+      Unit? selectedUnit;
+
+      if (product != null) {
+        for (final unit in units) {
+          if (unit.id == product.baseUnitId) {
+            selectedUnit = unit;
+            break;
+          }
+        }
+      }
+
+      selectedUnit ??= units.isNotEmpty ? units.first : null;
+
       setState(() {
         _units = units;
-        _selectedUnit = units.isNotEmpty ? units.first : null;
+        _selectedUnit = selectedUnit;
         _isLoadingUnits = false;
       });
     } catch (error) {
@@ -68,20 +115,33 @@ class _ProductFormPageState extends State<ProductFormPage> {
   }
 
   Future<void> _save() async {
+    if (_isSaving) {
+      return;
+    }
+
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
-    if (_selectedUnit == null) {
+    final selectedUnit = _selectedUnit;
+
+    if (selectedUnit == null) {
       setState(() {
         _errorMessage = 'يرجى اختيار الوحدة الأساسية.';
       });
       return;
     }
 
-    final price = double.parse(
+    final price = double.tryParse(
       _priceController.text.trim(),
     );
+
+    if (price == null || price < 0) {
+      setState(() {
+        _errorMessage = 'يرجى إدخال سعر صحيح.';
+      });
+      return;
+    }
 
     setState(() {
       _isSaving = true;
@@ -89,11 +149,28 @@ class _ProductFormPageState extends State<ProductFormPage> {
     });
 
     try {
-      await _productRepository.insert(
-        name: _nameController.text.trim(),
-        baseUnitId: _selectedUnit!.id,
-        defaultPrice: price,
-      );
+      final product = widget.product;
+
+      if (product == null) {
+        await _productRepository.insert(
+          name: _nameController.text.trim(),
+          baseUnitId: selectedUnit.id,
+          defaultPrice: price,
+        );
+      } else {
+        final updatedProduct = Product(
+          id: product.id,
+          name: _nameController.text.trim(),
+          baseUnitId: selectedUnit.id,
+          categoryId: product.categoryId,
+          defaultPrice: price,
+          isActive: product.isActive,
+          createdAt: product.createdAt,
+          updatedAt: product.updatedAt,
+        );
+
+        await _productRepository.update(updatedProduct);
+      }
 
       if (!mounted) {
         return;
@@ -107,7 +184,9 @@ class _ProductFormPageState extends State<ProductFormPage> {
 
       setState(() {
         _isSaving = false;
-        _errorMessage = 'تعذر حفظ المنتج.';
+        _errorMessage = widget.isEditing
+            ? 'تعذر تحديث المنتج.'
+            : 'تعذر حفظ المنتج.';
       });
     }
   }
@@ -119,7 +198,9 @@ class _ProductFormPageState extends State<ProductFormPage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('إضافة منتج'),
+        title: Text(
+          widget.isEditing ? 'تعديل المنتج' : 'إضافة منتج',
+        ),
       ),
       body: Center(
         child: SingleChildScrollView(
@@ -147,7 +228,10 @@ class _ProductFormPageState extends State<ProductFormPage> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(_errorMessage!),
+            Text(
+              _errorMessage!,
+              textAlign: TextAlign.center,
+            ),
             const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: _loadUnits,
@@ -172,6 +256,7 @@ class _ProductFormPageState extends State<ProductFormPage> {
         children: [
           TextFormField(
             controller: _nameController,
+            enabled: !_isSaving,
             textInputAction: TextInputAction.next,
             decoration: const InputDecoration(
               labelText: 'اسم المنتج',
@@ -221,6 +306,7 @@ class _ProductFormPageState extends State<ProductFormPage> {
           const SizedBox(height: 16),
           TextFormField(
             controller: _priceController,
+            enabled: !_isSaving,
             keyboardType: const TextInputType.numberWithOptions(
               decimal: true,
             ),
@@ -244,6 +330,24 @@ class _ProductFormPageState extends State<ProductFormPage> {
               return null;
             },
           ),
+          if (widget.product != null) ...[
+            const SizedBox(height: 20),
+            OutlinedButton.icon(
+              onPressed: _isSaving
+                  ? null
+                  : () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => ProductUnitsPage(
+                            product: widget.product!,
+                          ),
+                        ),
+                      );
+                    },
+              icon: const Icon(Icons.sell_outlined),
+              label: const Text('إدارة وحدات البيع والباركود'),
+            ),
+          ],
           if (_errorMessage != null) ...[
             const SizedBox(height: 16),
             Text(
@@ -264,7 +368,11 @@ class _ProductFormPageState extends State<ProductFormPage> {
                   )
                 : const Icon(Icons.save_outlined),
             label: Text(
-              _isSaving ? 'جارٍ الحفظ...' : 'حفظ المنتج',
+              _isSaving
+                  ? 'جارٍ الحفظ...'
+                  : widget.isEditing
+                      ? 'حفظ التعديلات'
+                      : 'حفظ المنتج',
             ),
           ),
         ],

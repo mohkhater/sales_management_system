@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
+import 'data/database/database_initializer.dart';
 import 'features/products/presentation/products_page.dart';
 
 void main() {
+  initializeDatabase();
+
   runApp(const SalesManagementApp());
 }
 

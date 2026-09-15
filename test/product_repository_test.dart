@@ -11,11 +11,10 @@ void main() {
   late ProductRepository repository;
   late String databasePath;
 
-    setUpAll(() {
+  setUpAll(() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   });
-  
 
   setUp(() async {
     databasePath = '${Directory.systemTemp.path}'
@@ -55,6 +54,17 @@ void main() {
     expect(product.baseUnitId, 'piece');
     expect(product.defaultPrice, 2.5);
     expect(product.isActive, isTrue);
+
+    final db = await testDatabase.database;
+    final baseUnits = await db.query(
+      'product_units',
+      where: 'product_id = ?',
+      whereArgs: [product.id],
+    );
+    expect(baseUnits, hasLength(1));
+    expect(baseUnits.single['unit_id'], 'piece');
+    expect(baseUnits.single['conversion_to_base'], 1.0);
+    expect(baseUnits.single['selling_price'], 2.5);
 
     final savedProduct = await repository.getById(product.id);
 

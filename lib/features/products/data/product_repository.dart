@@ -66,10 +66,23 @@ class ProductRepository {
 
     final db = await _database.database;
 
-    await db.insert(
-      _tableName,
-      product.toMap(),
-    );
+    await db.transaction((txn) async {
+      await txn.insert(
+        _tableName,
+        product.toMap(),
+      );
+
+      await txn.insert('product_units', {
+        'id': 'base-${product.id}',
+        'product_id': product.id,
+        'unit_id': product.baseUnitId,
+        'conversion_to_base': 1.0,
+        'selling_price': product.defaultPrice,
+        'is_active': 1,
+        'created_at': now.toIso8601String(),
+        'updated_at': now.toIso8601String(),
+      });
+    });
 
     return product;
   }
@@ -87,6 +100,18 @@ class ProductRepository {
     );
 
     final db = await _database.database;
+    final current = await getById(product.id);
+    if (current == null) {
+      throw StateError(
+        'Product not found: ${product.id}',
+      );
+    }
+
+    if (current.baseUnitId != updatedProduct.baseUnitId) {
+      throw StateError(
+        'The base unit cannot be changed after the product is created.',
+      );
+    }
 
     final affectedRows = await db.update(
       _tableName,
@@ -94,6 +119,18 @@ class ProductRepository {
       where: 'id = ?',
       whereArgs: [product.id],
     );
+
+    if (affectedRows > 0) {
+      await db.update(
+        'product_units',
+        {
+          'selling_price': updatedProduct.defaultPrice,
+          'updated_at': updatedProduct.updatedAt.toIso8601String(),
+        },
+        where: 'product_id = ? AND unit_id = ?',
+        whereArgs: [product.id, product.baseUnitId],
+      );
+    }
 
     if (affectedRows == 0) {
       throw StateError(
